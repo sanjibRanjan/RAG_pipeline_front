@@ -22,6 +22,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import axios from 'axios';
+import UploadInfoPopup from './UploadInfoPopup';
 
 const ChatInterface = ({
   messages,
@@ -37,6 +38,7 @@ const ChatInterface = ({
   const [uploadError, setUploadError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(null);
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [showUploadInfo, setShowUploadInfo] = useState(false);
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;
@@ -103,9 +105,9 @@ const ChatInterface = ({
     if (!file) return;
 
     // Validate file type
-    const allowedTypes = ['application/pdf', 'text/plain'];
+    const allowedTypes = ['application/pdf', 'text/plain', 'application/zip'];
     if (!allowedTypes.includes(file.type)) {
-      setUploadError('Only PDF and TXT files are allowed');
+      setUploadError('Only PDF, TXT, and ZIP files are allowed');
       return;
     }
 
@@ -153,11 +155,32 @@ const ChatInterface = ({
         name: uploadData.originalName,
         size: uploadData.size,
         chunks: ingestData.chunksProcessed,
+        zipInfo: ingestData.zipInfo,
         uploadedAt: new Date(),
         status: 'completed'
       }]);
 
-      setUploadSuccess(`Successfully uploaded and processed ${uploadData.originalName}`);
+      // Handle ZIP-specific metadata if available
+      let successMessage = `Successfully uploaded and processed ${uploadData.originalName}`;
+      
+      if (ingestData.chunksProcessed) {
+        successMessage += ` (${ingestData.chunksProcessed} chunks)`;
+      }
+      
+      // Add ZIP-specific information if available
+      if (ingestData.zipInfo) {
+        successMessage += ` - ZIP contains ${ingestData.zipInfo.fileCount || 0} files`;
+        if (ingestData.zipInfo.extractedFiles) {
+          successMessage += ` (${ingestData.zipInfo.extractedFiles.join(', ')})`;
+        }
+      }
+      
+      setUploadSuccess(successMessage);
+      
+      // Auto-dismiss success message after 3 seconds
+      setTimeout(() => {
+        setUploadSuccess(null);
+      }, 3000);
 
     } catch (error) {
       console.error('Upload error:', error);
@@ -188,6 +211,12 @@ const ChatInterface = ({
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const handleUploadInfoClose = () => {
+    setShowUploadInfo(false);
+    // Trigger file input after popup closes
+    document.getElementById('document-upload').click();
   };
 
   const structureResponse = (text) => {
@@ -548,41 +577,39 @@ const ChatInterface = ({
           {/* Upload Button */}
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <input
-              accept=".pdf,.txt"
+              accept=".pdf,.txt,.zip"
               style={{ display: 'none' }}
               id="document-upload"
               type="file"
               onChange={handleFileUpload}
               disabled={uploading}
             />
-            <label htmlFor="document-upload">
-              <Tooltip title="Upload Document (PDF/TXT)">
-                <IconButton
-                  component="span"
-                  disabled={uploading}
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    borderRadius: 2,
-                    '&:hover': {
-                      bgcolor: 'action.hover',
-                      borderColor: 'primary.main',
-                    },
-                    '&.Mui-disabled': {
-                      opacity: 0.5,
-                    }
-                  }}
-                >
-                  {uploading ? (
-                    <CircularProgress size={24} />
-                  ) : (
-                    <CloudUpload sx={{ color: 'primary.main' }} />
-                  )}
-                </IconButton>
-              </Tooltip>
-            </label>
+            <Tooltip title="Upload Document (PDF/TXT/ZIP)">
+              <IconButton
+                disabled={uploading}
+                onClick={() => setShowUploadInfo(true)}
+                sx={{
+                  width: 48,
+                  height: 48,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  '&:hover': {
+                    bgcolor: 'action.hover',
+                    borderColor: 'primary.main',
+                  },
+                  '&.Mui-disabled': {
+                    opacity: 0.5,
+                  }
+                }}
+              >
+                {uploading ? (
+                  <CircularProgress size={24} />
+                ) : (
+                  <CloudUpload sx={{ color: 'primary.main' }} />
+                )}
+              </IconButton>
+            </Tooltip>
 
             {/* Recent uploads indicator */}
             {uploadedFiles.length > 0 && (
@@ -637,6 +664,11 @@ const ChatInterface = ({
           </Button>
         </Box>
       </Box>
+
+      <UploadInfoPopup 
+        open={showUploadInfo} 
+        onClose={handleUploadInfoClose} 
+      />
     </Paper>
   );
 };

@@ -10,21 +10,23 @@ import {
 } from '@mui/material';
 import { CloudUpload, CheckCircle, Error } from '@mui/icons-material';
 import axios from 'axios';
+import UploadInfoPopup from './UploadInfoPopup';
 
 const DocumentUpload = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [showUploadInfo, setShowUploadInfo] = useState(false);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
     // Validate file type
-    const allowedTypes = ['application/pdf', 'text/plain'];
+    const allowedTypes = ['application/pdf', 'text/plain', 'application/zip'];
     if (!allowedTypes.includes(file.type)) {
-      setError('Only PDF and TXT files are allowed');
+      setError('Only PDF, TXT, and ZIP files are allowed');
       return;
     }
 
@@ -72,11 +74,32 @@ const DocumentUpload = () => {
         name: uploadData.originalName,
         size: uploadData.size,
         chunks: ingestData.chunksProcessed,
+        zipInfo: ingestData.zipInfo,
         uploadedAt: new Date(),
         status: 'completed'
       }]);
 
-      setSuccess(`Successfully uploaded and processed ${uploadData.originalName} (${ingestData.chunksProcessed} chunks)`);
+      // Handle ZIP-specific metadata if available
+      let successMessage = `Successfully uploaded and processed ${uploadData.originalName}`;
+      
+      if (ingestData.chunksProcessed) {
+        successMessage += ` (${ingestData.chunksProcessed} chunks)`;
+      }
+      
+      // Add ZIP-specific information if available
+      if (ingestData.zipInfo) {
+        successMessage += ` - ZIP contains ${ingestData.zipInfo.fileCount || 0} files`;
+        if (ingestData.zipInfo.extractedFiles) {
+          successMessage += ` (${ingestData.zipInfo.extractedFiles.join(', ')})`;
+        }
+      }
+      
+      setSuccess(successMessage);
+      
+      // Auto-dismiss success message after 3 seconds
+      setTimeout(() => {
+        setSuccess(null);
+      }, 3000);
 
     } catch (error) {
       console.error('Upload error:', error);
@@ -102,6 +125,12 @@ const DocumentUpload = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const handleUploadInfoClose = () => {
+    setShowUploadInfo(false);
+    // Trigger file input after popup closes
+    document.getElementById('document-upload').click();
+  };
+
   return (
     <Paper
       elevation={2}
@@ -117,37 +146,35 @@ const DocumentUpload = () => {
           Upload Documents
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Upload PDF or TXT files to add them to your knowledge base
+          Upload PDF, TXT, or ZIP files to add them to your knowledge base
         </Typography>
       </Box>
 
       <Box sx={{ mb: 2 }}>
         <input
-          accept=".pdf,.txt"
+          accept=".pdf,.txt,.zip"
           style={{ display: 'none' }}
           id="document-upload"
           type="file"
           onChange={handleFileUpload}
           disabled={uploading}
         />
-        <label htmlFor="document-upload">
-          <Button
-            variant="outlined"
-            component="span"
-            startIcon={<CloudUpload />}
-            disabled={uploading}
-            sx={{
-              minWidth: 200,
-              height: 56,
+        <Button
+          variant="outlined"
+          startIcon={<CloudUpload />}
+          disabled={uploading}
+          onClick={() => setShowUploadInfo(true)}
+          sx={{
+            minWidth: 200,
+            height: 56,
+            borderStyle: 'dashed',
+            '&:hover': {
               borderStyle: 'dashed',
-              '&:hover': {
-                borderStyle: 'dashed',
-              }
-            }}
-          >
-            {uploading ? 'Uploading...' : 'Choose File'}
-          </Button>
-        </label>
+            }
+          }}
+        >
+          {uploading ? 'Uploading...' : 'Upload Files'}
+        </Button>
       </Box>
 
       {uploading && (
@@ -177,19 +204,30 @@ const DocumentUpload = () => {
             Recent Uploads:
           </Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {uploadedFiles.slice(-5).map((file, index) => (
-              <Chip
-                key={index}
-                label={`${file.name} (${formatFileSize(file.size)})`}
-                icon={file.status === 'completed' ? <CheckCircle /> : <Error />}
-                color={file.status === 'completed' ? 'success' : 'error'}
-                variant="outlined"
-                size="small"
-              />
-            ))}
+            {uploadedFiles.slice(-5).map((file, index) => {
+              let chipLabel = `${file.name} (${formatFileSize(file.size)})`;
+              if (file.zipInfo && file.zipInfo.fileCount) {
+                chipLabel += ` - ${file.zipInfo.fileCount} files`;
+              }
+              return (
+                <Chip
+                  key={index}
+                  label={chipLabel}
+                  icon={file.status === 'completed' ? <CheckCircle /> : <Error />}
+                  color={file.status === 'completed' ? 'success' : 'error'}
+                  variant="outlined"
+                  size="small"
+                />
+              );
+            })}
           </Box>
         </Box>
       )}
+
+      <UploadInfoPopup 
+        open={showUploadInfo} 
+        onClose={handleUploadInfoClose} 
+      />
     </Paper>
   );
 };
