@@ -21,7 +21,8 @@ import { Send, ExpandMore, Psychology, Person, CloudUpload, CheckCircle, Error a
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import axios from 'axios';
+import { qaAPI, documentsAPI } from '../utils/api';
+import { useAuth } from '../utils/AuthContext';
 import UploadInfoPopup from './UploadInfoPopup';
 
 const ChatInterface = ({
@@ -31,8 +32,10 @@ const ChatInterface = ({
   setIsLoading,
   sessionId,
   setSessionId,
-  messagesEndRef
+  messagesEndRef,
+  onAuthRequired
 }) => {
+  const { isAuthenticated } = useAuth();
   const [inputMessage, setInputMessage] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
@@ -42,6 +45,12 @@ const ChatInterface = ({
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;
+
+    // Check if user is authenticated
+    if (!isAuthenticated) {
+      onAuthRequired();
+      return;
+    }
 
     const userMessage = {
       id: Date.now(),
@@ -55,7 +64,7 @@ const ChatInterface = ({
     setIsLoading(true);
 
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL || ''}/api/qa/ask`, {
+      const response = await qaAPI.ask({
         question: userMessage.content,
         sessionId: sessionId,
       });
@@ -81,6 +90,13 @@ const ChatInterface = ({
       }
     } catch (error) {
       console.error('QA error:', error);
+
+      // Check if it's an authentication error
+      if (error.response?.status === 401) {
+        onAuthRequired();
+        return;
+      }
+
       const errorMessage = {
         id: Date.now() + 2,
         type: 'error',
@@ -104,6 +120,12 @@ const ChatInterface = ({
     const file = event.target.files[0];
     if (!file) return;
 
+    // Check if user is authenticated
+    if (!isAuthenticated) {
+      onAuthRequired();
+      return;
+    }
+
     // Validate file type
     const allowedTypes = ['application/pdf', 'text/plain', 'application/zip'];
     if (!allowedTypes.includes(file.type)) {
@@ -126,11 +148,7 @@ const ChatInterface = ({
       const formData = new FormData();
       formData.append('document', file);
 
-      const uploadResponse = await axios.post(`${process.env.REACT_APP_API_URL || ''}/api/documents/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const uploadResponse = await documentsAPI.upload(formData);
 
       if (!uploadResponse.data.success) {
         throw new Error(uploadResponse.data.message);
@@ -139,7 +157,7 @@ const ChatInterface = ({
       const uploadData = uploadResponse.data.data;
 
       // Ingest document
-      const ingestResponse = await axios.post(`${process.env.REACT_APP_API_URL || ''}/api/documents/ingest`, {
+      const ingestResponse = await documentsAPI.ingest({
         filePath: uploadData.uploadPath,
         originalName: uploadData.originalName,
       });
@@ -184,6 +202,13 @@ const ChatInterface = ({
 
     } catch (error) {
       console.error('Upload error:', error);
+
+      // Check if it's an authentication error
+      if (error.response?.status === 401) {
+        onAuthRequired();
+        return;
+      }
+
       setUploadError(error.response?.data?.message || error.message || 'Upload failed');
 
       // Add failed upload to list
@@ -556,7 +581,7 @@ const ChatInterface = ({
           <Box sx={{ mb: 1 }}>
             <LinearProgress sx={{ mb: 1 }} />
             <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              Processing document...
+              Processing document... This may take a few minutes for large files.
             </Typography>
           </Box>
         )}
@@ -584,9 +609,9 @@ const ChatInterface = ({
               onChange={handleFileUpload}
               disabled={uploading}
             />
-            <Tooltip title="Upload Document (PDF/TXT/ZIP)">
+            <Tooltip title={isAuthenticated ? "Upload Document (PDF/TXT/ZIP)" : "Please sign in to upload documents"}>
               <IconButton
-                disabled={uploading}
+                disabled={uploading || !isAuthenticated}
                 onClick={() => setShowUploadInfo(true)}
                 sx={{
                   width: 48,
@@ -635,9 +660,9 @@ const ChatInterface = ({
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask a question about your documents..."
+            placeholder={isAuthenticated ? "Ask a question about your documents..." : "Please sign in to ask questions..."}
             variant="outlined"
-            disabled={isLoading}
+            disabled={isLoading || !isAuthenticated}
             sx={{
               '& .MuiOutlinedInput-root': {
                 borderRadius: 2,
@@ -649,7 +674,7 @@ const ChatInterface = ({
           <Button
             variant="contained"
             onClick={handleSendMessage}
-            disabled={!inputMessage.trim() || isLoading}
+            disabled={!inputMessage.trim() || isLoading || !isAuthenticated}
             sx={{
               minWidth: 56,
               height: 56,
